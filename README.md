@@ -1,5 +1,7 @@
 # ALS Analyser
 
+**[Open ALS Analyser →](https://mkr237.github.io/als-analyser/)**
+
 A browser-based inspector for Ableton Live Set files (`.als`). Drop in a project file and get an instant breakdown of its structure — tracks, plugins, devices, clips, and more — without uploading anything to a server.
 
 ## Features
