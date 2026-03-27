@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALS Analyser</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg: #0d0d0f;
+    --surface: #141418;
+    --surface2: #1c1c22;
+    --border: #2a2a35;
+    --accent: #c8f542;
+    --accent2: #42c8f5;
+    --accent3: #f542a8;
+    --text: #e8e8f0;
+    --muted: #5a5a72;
+    --muted2: #3a3a4a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  /* ── Header ── */
+  header {
+    margin-bottom: 48px;
+  }
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  /* ── Drop Zone ── */
+  #dropzone {
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+    padding: 64px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 48px;
+  }
+  #dropzone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(200,245,66,0.04) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  #dropzone.drag-over {
+    border-color: var(--accent);
+    background: rgba(200,245,66,0.03);
+  }
+  #dropzone:hover { border-color: var(--muted); }
+
+  .drop-icon {
+    font-size: 40px;
+    margin-bottom: 16px;
+    display: block;
+    opacity: 0.5;
+  }
+  .drop-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .drop-sub { color: var(--muted); font-size: 12px; }
+
+  #fileInput { display: none; }
+
+  /* ── Results ── */
+  #results { display: none; }
+  #results.visible { display: block; }
+
+  /* Project header bar */
+  .project-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .project-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .project-meta {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    margin-top: 8px;
+  }
+  .meta-item {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+  }
+  .meta-item-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .meta-item-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .meta-item.accent  .meta-item-value,
+  .meta-item.accent2 .meta-item-value,
+  .meta-item.accent3 .meta-item-value { color: var(--text); }
+  .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--muted2);
+    display: inline-block;
+  }
+
+  /* ── Grid layout for cards ── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  /* ── Stat Cards ── */
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .stat-card.green::after { background: var(--accent); }
+  .stat-card.blue::after  { background: var(--accent2); }
+  .stat-card.pink::after  { background: var(--accent3); }
+  .stat-card.gray::after  { background: var(--muted); }
+
+  .stat-label {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 40px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .stat-card.green .stat-value { color: var(--accent); }
+  .stat-card.blue  .stat-value { color: var(--accent2); }
+  .stat-card.pink  .stat-value { color: var(--accent3); }
+  .stat-card.gray  .stat-value { color: var(--muted); }
+
+  .stat-detail {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  /* ── Full-width section cards ── */
+  .section-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .section-header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface2);
+  }
+  .section-title {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .section-count {
+    font-size: 10px;
+    color: var(--muted2);
+  }
+  .section-body { padding: 20px 24px; }
+
+  /* ── Track type breakdown ── */
+  .track-breakdown {
+    display: flex;
+    gap: 0;
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    background: var(--muted2);
+  }
+  .track-seg { height: 100%; transition: width 0.6s ease; }
+  .seg-audio  { background: var(--accent); }
+  .seg-midi   { background: var(--accent2); }
+  .seg-group  { background: var(--accent3); }
+  .seg-return { background: #f5a042; }
+
+  .track-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .legend-item b { color: var(--text); }
+  .legend-item span { color: var(--muted); }
+
+  /* ── Plugin table ── */
+  .plugin-table { width: 100%; border-collapse: collapse; }
+  .plugin-table th {
+    text-align: left;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 0 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+  .plugin-table th:last-child { text-align: right; }
+  .plugin-table td {
+    padding: 9px 0;
+    border-bottom: 1px solid var(--muted2);
+    vertical-align: middle;
+  }
+  .plugin-table tr:last-child td { border-bottom: none; }
+  .plugin-table td:last-child { text-align: right; }
+
+  .plugin-name { color: var(--text); }
+  .plugin-type {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .tag-vst3  { background: rgba(200,245,66,0.12); color: var(--accent); }
+  .tag-vst2  { background: rgba(200,245,66,0.06); color: rgba(200,245,66,0.6); }
+  .tag-au    { background: rgba(66,200,245,0.12); color: var(--accent2); }
+  .tag-m4l   { background: rgba(245,66,168,0.12); color: var(--accent3); }
+
+  .plugin-count {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  /* bar behind count */
+  .count-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+  .count-bar {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--muted2);
+    min-width: 60px;
+    overflow: hidden;
+  }
+  .count-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+
+  /* ── Tracks list ── */
+  .track-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--muted2);
+  }
+  .track-row:last-child { border-bottom: none; }
+  .track-index {
+    color: var(--muted2);
+    font-size: 10px;
+    min-width: 24px;
+    padding-top: 2px;
+  }
+  .track-info { flex: 1; min-width: 0; }
+  .track-info-name {
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+  }
+  .track-frozen { color: var(--accent2); font-size: 10px; margin-left: 8px; }
+  .track-no-fx  { color: var(--muted2); font-size: 10px; margin-left: 8px; }
+  .track-devices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .device-chip {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 2px;
+    background: var(--muted2);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .device-chip.is-plugin {
+    background: rgba(200,245,66,0.08);
+    color: rgba(200,245,66,0.7);
+  }
+  .device-chip.is-m4l {
+    background: rgba(245,66,168,0.08);
+    color: rgba(245,66,168,0.7);
+  }
+
+  .type-badge {
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 2px;
+    background: var(--surface2);
+    color: var(--muted);
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 1px;
+    white-space: nowrap;
+  }
+
+  /* ── Alerts / flags ── */
+  .flags { display: flex; flex-direction: column; gap: 8px; }
+  .flag {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 3px;
+    border-left: 3px solid;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .flag-warn  { background: rgba(245,160,66,0.08); border-color: #f5a042; color: #f5a042; }
+  .flag-info  { background: rgba(66,200,245,0.08); border-color: var(--accent2); color: var(--accent2); }
+  .flag-good  { background: rgba(200,245,66,0.08); border-color: var(--accent); color: var(--accent); }
+
+  /* ── Reset btn ── */
+  #resetBtn {
+    margin-top: 32px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 10px 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  #resetBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* scrollable tall sections */
+  .scrollable { max-height: 380px; overflow-y: auto; padding-right: 4px; }
+  .scrollable::-webkit-scrollbar { width: 3px; }
+  .scrollable::-webkit-scrollbar-track { background: transparent; }
+  .scrollable::-webkit-scrollbar-thumb { background: var(--muted2); border-radius: 2px; }
+
+  .no-data { color: var(--muted2); font-size: 12px; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">— Ableton Project Inspector</div>
+    <h1>ALS <span>Analyser</span></h1>
+    <p class="subtitle">Drop an Ableton Live Set (.als) to inspect its structure</p>
+  </header>
+
+  <div id="dropzone">
+    <span class="drop-icon">⬡</span>
+    <div class="drop-title">Drop your .als file here</div>
+    <div class="drop-sub">or click to browse · works entirely in your browser · nothing is uploaded</div>
+    <input type="file" id="fileInput" accept=".als">
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const results   = document.getElementById('results');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
+
+function processFile(file) {
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const raw = new Uint8Array(ev.target.result);
+      const decompressed = await decompressGzip(raw);
+      const text = new TextDecoder().decode(decompressed);
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(text, 'application/xml');
+      if (xml.querySelector('parsererror')) throw new Error('XML parse error');
+      render(analyse(xml, file.name));
+    } catch(err) {
+      results.innerHTML = `<div style="color:#f54242;padding:20px">Error: ${err.message}<br><small>Make sure this is a valid .als file saved by Ableton Live.</small></div>`;
+      results.classList.add('visible');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function decompressGzip(data) {
+  const ds = new DecompressionStream('gzip');
+  const w  = ds.writable.getWriter();
+  const r  = ds.readable.getReader();
+  const chunks = [];
+  w.write(data);
+  w.close();
+  while (true) {
+    const { done, value } = await r.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const total = chunks.reduce((n,c) => n+c.length, 0);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const c of chunks) { out.set(c, pos); pos += c.length; }
+  return out;
+}
+
+/* ─────────────────────────────────────────
+   ANALYSIS
+───────────────────────────────────────── */
+function analyse(xml, filename) {
+  const d = {};
+
+  // ── Project name
+  d.filename = filename.replace(/\.als$/i, '');
+
+  // ── BPM + time sig
+  const tempo = xml.querySelector('Tempo > Manual');
+  d.bpm = tempo ? parseFloat(tempo.getAttribute('Value')).toFixed(1) : '—';
+  const tsNum = xml.querySelector('TimeSignature TimeSignatures AutomationEvent');
+  if (tsNum) {
+    const num = tsNum.getAttribute('Numerator');
+    const den = tsNum.getAttribute('Denominator');
+    d.timeSig = num && den ? `${num}/${den}` : '4/4';
+  } else {
+    d.timeSig = '4/4';
+  }
+
+  // ── Live version
+  const creator = xml.querySelector('Ableton');
+  d.liveVersion = creator ? (creator.getAttribute('Creator') || 'Unknown').replace('Ableton Live ', '') : '—';
+
+  // ── Track types
+  const audioTracks  = [...xml.querySelectorAll('AudioTrack')];
+  const midiTracks   = [...xml.querySelectorAll('MidiTrack')];
+  const groupTracks  = [...xml.querySelectorAll('GroupTrack')];
+  const returnTracks = [...xml.querySelectorAll('ReturnTrack')];
+  const masterTrack  = [...xml.querySelectorAll('MasterTrack')];
+
+  d.audioCount  = audioTracks.length;
+  d.midiCount   = midiTracks.length;
+  d.groupCount  = groupTracks.length;
+  d.returnCount = returnTracks.length;
+  d.totalTracks = audioTracks.length + midiTracks.length + groupTracks.length + returnTracks.length;
+
+  // ── Clips
+  let clipCount = 0;
+  xml.querySelectorAll('MidiClip, AudioClip').forEach(() => clipCount++);
+  d.clipCount = clipCount;
+
+  // ── Frozen tracks
+  const frozenTracks = [];
+  [...audioTracks, ...midiTracks, ...groupTracks].forEach(t => {
+    const freeze = t.querySelector('Freeze');
+    if (freeze && freeze.getAttribute('Value') === 'true') {
+      const name = getTrackName(t);
+      frozenTracks.push(name);
+    }
+  });
+  d.frozenTracks = frozenTracks;
+
+  // ── Per-track device info
+  const allTracks = [
+    ...audioTracks.map(t => ({el:t, type:'Audio'})),
+    ...midiTracks.map(t => ({el:t, type:'MIDI'})),
+    ...groupTracks.map(t => ({el:t, type:'Group'})),
+    ...returnTracks.map(t => ({el:t, type:'Return'})),
+    ...masterTrack.map(t => ({el:t, type:'Master'})),
+  ];
+
+  const pluginCounts   = {}; // name -> {count, kind}
+  const nativeDevices  = {}; // name -> count
+  const trackDetails   = [];
+  const emptyChains    = [];
+
+  allTracks.forEach(({el, type}) => {
+    const name    = type === 'Master' ? 'Master' : getTrackName(el);
+    const frozen  = el.querySelector('Freeze')?.getAttribute('Value') === 'true';
+    const devices = [];
+
+    // VST2
+    el.querySelectorAll('PluginDevice').forEach(pd => {
+      const pn = pd.querySelector('PlugName');
+      const plugName = pn ? pn.getAttribute('Value') : 'Unknown VST2';
+      devices.push({ name: plugName, kind: 'VST2' });
+      if (!pluginCounts[plugName]) pluginCounts[plugName] = { count: 0, kind: 'VST2' };
+      pluginCounts[plugName].count++;
+    });
+
+    // VST3
+    el.querySelectorAll('Vst3PluginDevice').forEach(pd => {
+      const pn = pd.querySelector('Name') || pd.querySelector('PlugName');
+      const plugName = pn ? pn.getAttribute('Value') : 'Unknown VST3';
+      devices.push({ name: plugName, kind: 'VST3' });
+      if (!pluginCounts[plugName]) pluginCounts[plugName] = { count: 0, kind: 'VST3' };
+      pluginCounts[plugName].count++;
+    });
+
+    // AU
+    el.querySelectorAll('AuPluginDevice').forEach(pd => {
+      const pn = pd.querySelector('Name') || pd.querySelector('PlugName');
+      const plugName = pn ? pn.getAttribute('Value') : 'Unknown AU';
+      devices.push({ name: plugName, kind: 'AU' });
+      if (!pluginCounts[plugName]) pluginCounts[plugName] = { count: 0, kind: 'AU' };
+      pluginCounts[plugName].count++;
+    });
+
+    // Max for Live
+    el.querySelectorAll('MaxDevice').forEach(pd => {
+      const pn = pd.querySelector('Name') || pd.querySelector('UserName');
+      const plugName = pn ? pn.getAttribute('Value') : 'M4L Device';
+      devices.push({ name: plugName, kind: 'M4L' });
+      if (!pluginCounts[plugName]) pluginCounts[plugName] = { count: 0, kind: 'M4L' };
+      pluginCounts[plugName].count++;
+    });
+
+    // Native Ableton devices (heuristic: known tags)
+    const nativeTags = [
+      'Operator','Sampler','Simpler','Drum Rack','InstrumentGroupDevice',
+      'AudioEffectGroupDevice','MidiEffectGroupDevice',
+      'Eq8','Compressor2','AutoFilter','Reverb','Delay','GlueCompressor',
+      'MultibandDynamics','Limiter','Gate','Saturator','Erosion',
+      'Corpus','DrumSynth','Collision','Redux','Vinyl Distortion',
+      'PitchTwo','Drift','Meld','Roar','Shifter',
+      'FilterDelay','GrainDelay','Looper','BeatRepeat',
+      'Chord','Arpeggiator','Velocity','Scale','Note Length',
+      'MidiEffectRack','AutoPan','Phaser','Flanger',
+      'Echo', 'Spectral Resonator', 'Spectral Blur', 'Convolution Reverb',
+    ];
+    const nativeTagMap = {
+      'Eq8':'EQ Eight', 'Compressor2':'Compressor', 'AutoFilter':'Auto Filter',
+      'InstrumentGroupDevice':'Instrument Rack','AudioEffectGroupDevice':'Audio Effect Rack',
+      'MidiEffectGroupDevice':'MIDI Effect Rack','PitchTwo':'Pitch',
+    };
+    nativeTags.forEach(tag => {
+      const cleanTag = tag.replace(/ /g,'');
+      el.querySelectorAll(cleanTag).forEach(() => {
+        const displayName = nativeTagMap[tag] || tag;
+        if (!nativeDevices[displayName]) nativeDevices[displayName] = 0;
+        nativeDevices[displayName]++;
+        devices.push({ name: displayName, kind: 'native' });
+      });
+    });
+
+    if (type !== 'Master' && devices.length === 0) emptyChains.push(name);
+
+    trackDetails.push({ name, type, frozen, devices });
+  });
+
+  d.pluginCounts  = pluginCounts;
+  d.nativeDevices = nativeDevices;
+  d.trackDetails  = trackDetails;
+  d.emptyChains   = emptyChains;
+
+  // ── Totals
+  d.totalPluginInstances = Object.values(pluginCounts).reduce((s,v) => s+v.count, 0);
+  d.uniquePlugins        = Object.keys(pluginCounts).length;
+
+  return d;
+}
+
+function getTrackName(el) {
+  const en = el.querySelector('Name > EffectiveName');
+  return en ? en.getAttribute('Value') : 'Unnamed';
+}
+
+/* ─────────────────────────────────────────
+   RENDER
+───────────────────────────────────────── */
+function render(d) {
+  const totalForBar = d.audioCount + d.midiCount + d.groupCount + d.returnCount;
+  const pct = n => totalForBar ? (n/totalForBar*100).toFixed(1) : 0;
+
+  // ── Plugin table rows
+  const sortedPlugins = Object.entries(d.pluginCounts).sort((a,b) => b[1].count - a[1].count);
+  const maxCount = sortedPlugins.length ? sortedPlugins[0][1].count : 1;
+
+  const pluginRows = sortedPlugins.map(([name, {count, kind}]) => {
+    const tag = `<span class="plugin-type tag-${kind.toLowerCase()}">${kind}</span>`;
+    const barW = Math.round(count/maxCount*80);
+    return `<tr>
+      <td><span class="plugin-name">${esc(name)}</span>${tag}</td>
+      <td>
+        <div class="count-bar-wrap">
+          <div class="count-bar" style="width:${barW}px"><div class="count-bar-fill" style="width:100%"></div></div>
+          <span class="plugin-count">${count}</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // ── Native device rows
+  const sortedNative = Object.entries(d.nativeDevices).sort((a,b) => b[1]-a[1]);
+  const maxNative = sortedNative.length ? sortedNative[0][1] : 1;
+  const nativeRows = sortedNative.map(([name, count]) => {
+    const barW = Math.round(count/maxNative*80);
+    return `<tr>
+      <td><span class="plugin-name">${esc(name)}</span></td>
+      <td>
+        <div class="count-bar-wrap">
+          <div class="count-bar" style="width:${barW}px"><div class="count-bar-fill" style="width:100%;background:var(--accent2)"></div></div>
+          <span class="plugin-count">${count}</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // ── Track list
+  const trackRows = d.trackDetails.map((t, i) => {
+    const chips = [...new Map(t.devices.map(d => [d.name, d])).values()].map(dev => {
+      const cls = dev.kind === 'native' ? '' : dev.kind === 'M4L' ? 'is-m4l' : 'is-plugin';
+      return `<span class="device-chip ${cls}">${esc(dev.name)}</span>`;
+    }).join('');
+    const frozenBadge = t.frozen ? `<span class="track-frozen">❄ frozen</span>` : '';
+    const emptyBadge  = t.type !== 'Master' && t.devices.length === 0 ? `<span class="track-no-fx">no devices</span>` : '';
+    return `<div class="track-row">
+      <span class="track-index">${String(i+1).padStart(2,'0')}</span>
+      <div class="track-info">
+        <div class="track-info-name">${esc(t.name)}${frozenBadge}${emptyBadge}</div>
+        <div class="track-devices">${chips || '<span class="no-data">—</span>'}</div>
+      </div>
+      <span class="type-badge">${t.type}</span>
+    </div>`;
+  }).join('');
+
+  // ── Flags / observations
+  const flags = [];
+  if (d.frozenTracks.length)
+    flags.push(`<div class="flag flag-info">❄ ${d.frozenTracks.length} frozen track${d.frozenTracks.length>1?'s':''}: ${d.frozenTracks.map(esc).join(', ')}</div>`);
+  if (d.emptyChains.length)
+    flags.push(`<div class="flag flag-warn">⚠ ${d.emptyChains.length} track${d.emptyChains.length>1?'s':''} with no devices: ${d.emptyChains.map(esc).join(', ')}</div>`);
+  if (d.totalPluginInstances > 40)
+    flags.push(`<div class="flag flag-warn">⚠ High plugin count (${d.totalPluginInstances} instances) — may be CPU intensive</div>`);
+  if (d.totalPluginInstances === 0)
+    flags.push(`<div class="flag flag-good">✓ No third-party plugins — fully portable project</div>`);
+  if (d.returnCount === 0)
+    flags.push(`<div class="flag flag-info">ℹ No return tracks found</div>`);
+  if (d.groupCount > 0)
+    flags.push(`<div class="flag flag-good">✓ ${d.groupCount} group track${d.groupCount>1?'s':''} — good signal chain organisation</div>`);
+
+  results.innerHTML = `
+    <div class="project-header">
+      <div class="project-name">${esc(d.filename)}</div>
+      <div class="project-meta">
+        <div class="meta-item accent">
+          <span class="meta-item-value">${d.bpm}</span>
+          <span class="meta-item-label">BPM</span>
+        </div>
+        <div class="meta-item accent2">
+          <span class="meta-item-value">${d.timeSig}</span>
+          <span class="meta-item-label">Time Sig</span>
+        </div>
+        <div class="meta-item accent3">
+          <span class="meta-item-value">${d.clipCount}</span>
+          <span class="meta-item-label">Clips</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-item-label">Live</span>
+          <span class="meta-item-value" style="font-size:15px">${esc(d.liveVersion)}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="stat-card green">
+        <div class="stat-label">Total Tracks</div>
+        <div class="stat-value">${d.totalTracks}</div>
+        <div class="stat-detail">${d.audioCount} audio · ${d.midiCount} MIDI · ${d.groupCount} group · ${d.returnCount} return</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Plugin Instances</div>
+        <div class="stat-value">${d.totalPluginInstances}</div>
+        <div class="stat-detail">${d.uniquePlugins} unique plugin${d.uniquePlugins!==1?'s':''}</div>
+      </div>
+      <div class="stat-card pink">
+        <div class="stat-label">Clips</div>
+        <div class="stat-value">${d.clipCount}</div>
+        <div class="stat-detail">across all tracks</div>
+      </div>
+      <div class="stat-card gray">
+        <div class="stat-label">Frozen Tracks</div>
+        <div class="stat-value">${d.frozenTracks.length}</div>
+        <div class="stat-detail">${d.emptyChains.length} track${d.emptyChains.length!==1?'s':''} with no devices</div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title">Track Type Breakdown</span>
+        <span class="section-count">${d.totalTracks} total</span>
+      </div>
+      <div class="section-body">
+        <div class="track-breakdown">
+          <div class="track-seg seg-audio"  style="width:${pct(d.audioCount)}%"></div>
+          <div class="track-seg seg-midi"   style="width:${pct(d.midiCount)}%"></div>
+          <div class="track-seg seg-group"  style="width:${pct(d.groupCount)}%"></div>
+          <div class="track-seg seg-return" style="width:${pct(d.returnCount)}%"></div>
+        </div>
+        <div class="track-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div><b>${d.audioCount}</b> <span>Audio</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div><b>${d.midiCount}</b> <span>MIDI</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent3)"></div><b>${d.groupCount}</b> <span>Group</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f5a042"></div><b>${d.returnCount}</b> <span>Return</span></div>
+        </div>
+      </div>
+    </div>
+
+    ${sortedPlugins.length ? `
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title">Third-Party Plugins</span>
+        <span class="section-count">${d.totalPluginInstances} instances · ${d.uniquePlugins} unique</span>
+      </div>
+      <div class="section-body">
+        <table class="plugin-table">
+          <thead><tr><th>Plugin</th><th>Instances</th></tr></thead>
+          <tbody>${pluginRows}</tbody>
+        </table>
+      </div>
+    </div>` : ''}
+
+    ${sortedNative.length ? `
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title">Ableton Native Devices</span>
+        <span class="section-count">${Object.values(d.nativeDevices).reduce((a,b)=>a+b,0)} instances</span>
+      </div>
+      <div class="section-body">
+        <table class="plugin-table">
+          <thead><tr><th>Device</th><th>Instances</th></tr></thead>
+          <tbody>${nativeRows}</tbody>
+        </table>
+      </div>
+    </div>` : ''}
+
+    ${flags.length ? `
+    <div class="section-card">
+      <div class="section-header"><span class="section-title">Observations</span></div>
+      <div class="section-body"><div class="flags">${flags.join('')}</div></div>
+    </div>` : ''}
+
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title">All Tracks</span>
+        <span class="section-count">${d.trackDetails.length} tracks incl. return &amp; master</span>
+      </div>
+      <div class="section-body scrollable">${trackRows}</div>
+    </div>
+
+    <button id="resetBtn" onclick="resetUI()">← Analyse another file</button>
+  `;
+
+  results.classList.add('visible');
+  dropzone.style.display = 'none';
+}
+
+function resetUI() {
+  results.innerHTML = '';
+  results.classList.remove('visible');
+  dropzone.style.display = '';
+  fileInput.value = '';
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
